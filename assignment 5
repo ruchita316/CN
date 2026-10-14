@@ -1,0 +1,174 @@
+//SERVER
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+using namespace std;
+
+int main() {
+    int serverSocket, clientSocket;
+    struct sockaddr_in serverAddr{};
+
+    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(8080);
+    serverAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    bind(serverSocket, (struct sockaddr*)&serverAddr,
+         sizeof(serverAddr));
+
+    listen(serverSocket, 1);
+
+    cout << "Server is waiting for client..." << endl;
+
+    clientSocket = accept(serverSocket, nullptr, nullptr);
+    cout << "Client connected!" << endl;
+
+    char buffer[1024];
+
+    while (true) {
+        int bytes = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+
+        if (bytes <= 0)
+            break;
+
+        buffer[bytes] = '\0';
+        string message(buffer);
+
+        if (message == "exit")
+            break;
+
+        size_t pos = message.find('|');
+
+        if (pos == string::npos) {
+            string reply = "Invalid choice";
+            send(clientSocket, reply.c_str(), reply.size(), 0);
+            continue;
+        }
+
+        string choice = message.substr(0, pos);
+        string data = message.substr(pos + 1);
+        string result;
+
+        if (choice == "1") {
+            result = data;
+        }
+        else if (choice == "2") {
+            stringstream ss(data);
+            double a, b;
+            char op;
+
+            if (!(ss >> a >> op >> b)) {
+                result = "Invalid expression";
+            }
+            else {
+                switch (op) {
+                    case '+': result = to_string(a + b); break;
+                    case '-': result = to_string(a - b); break;
+                    case '*': result = to_string(a * b); break;
+                    case '/':
+                        if (b != 0)
+                            result = to_string(a / b);
+                        else
+                            result = "Division by zero";
+                        break;
+                    default:
+                        result = "Invalid operator";
+                }
+            }
+        }
+        else {
+            result = "Invalid choice";
+        }
+
+        send(clientSocket, result.c_str(), result.size(), 0);
+    }
+
+    close(clientSocket);
+    close(serverSocket);
+
+    return 0;
+}
+
+
+//CLIENT
+
+#include <iostream>
+#include <string>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+using namespace std;
+
+int main() {
+    int clientSocket;
+    struct sockaddr_in serverAddr{};
+
+    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(8080);
+    inet_pton(AF_INET, "127.0.0.1", &serverAddr.sin_addr);
+
+    if (connect(clientSocket, (struct sockaddr*)&serverAddr,
+                sizeof(serverAddr)) < 0) {
+        cout << "Connection failed!" << endl;
+        close(clientSocket);
+        return 1;
+    }
+
+    cout << "Connected to server!" << endl;
+
+    while (true) {
+        cout << "\n1. Chat\n";
+        cout << "2. Mathematical Operations\n";
+        cout << "3. Exit\n";
+        cout << "Enter choice: ";
+
+        string choice;
+        getline(cin, choice);
+
+        if (choice == "3") {
+            string msg = "exit";
+            send(clientSocket, msg.c_str(), msg.size(), 0);
+            break;
+        }
+
+        string data;
+
+        if (choice == "1") {
+            cout << "Enter message: ";
+            getline(cin, data);
+        }
+        else if (choice == "2") {
+            cout << "Enter expression (e.g. 10 + 5): ";
+            getline(cin, data);
+        }
+        else {
+            cout << "Invalid choice" << endl;
+            continue;
+        }
+
+        string message = choice + "|" + data;
+
+        send(clientSocket, message.c_str(), message.size(), 0);
+
+        char buffer[1024];
+        int bytes = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+
+        if (bytes <= 0) {
+            cout << "Server disconnected." << endl;
+            break;
+        }
+
+        buffer[bytes] = '\0';
+        cout << "Server Reply: " << buffer << endl;
+    }
+
+    close(clientSocket);
+
+    return 0;
+}
