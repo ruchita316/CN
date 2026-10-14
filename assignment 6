@@ -1,0 +1,138 @@
+//SERVER
+
+#include <iostream>
+#include <string>
+#include <algorithm>
+#include <cctype>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+using namespace std;
+
+int main() {
+    int serverSocket = socket(AF_INET, SOCK_DGRAM, 0);
+
+    sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(8080);
+    serverAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+
+    cout << "Server is waiting for message..." << endl;
+
+    char buffer[1024];
+    sockaddr_in clientAddr{};
+    socklen_t len = sizeof(clientAddr);
+
+    while (true) {
+        int bytes = recvfrom(serverSocket, buffer, sizeof(buffer) - 1, 0,
+                             (sockaddr*)&clientAddr, &len);
+
+        if (bytes <= 0)
+            continue;
+
+        buffer[bytes] = '\0';
+        string message(buffer);
+
+        if (message == "exit")
+            break;
+
+        size_t pos = message.find('|');
+
+        if (pos == string::npos)
+            continue;
+
+        string choice = message.substr(0, pos);
+        string text = message.substr(pos + 1);
+        string result;
+
+        if (choice == "1") {
+            reverse(text.begin(), text.end());
+            result = text;
+        }
+        else if (choice == "2") {
+            for (char &ch : text) {
+                ch = tolower(static_cast<unsigned char>(ch));
+            }
+            result = text;
+        }
+        else {
+            result = "Invalid choice";
+        }
+
+        sendto(serverSocket, result.c_str(), result.size(), 0,
+               (sockaddr*)&clientAddr, len);
+    }
+
+    close(serverSocket);
+    return 0;
+}
+
+
+//CLIENT
+
+#include <iostream>
+#include <string>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+using namespace std;
+
+int main() {
+    int clientSocket = socket(AF_INET, SOCK_DGRAM, 0);
+
+    sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(8080);
+    inet_pton(AF_INET, "127.0.0.1", &serverAddr.sin_addr);
+
+    while (true) {
+        cout << "\n1. Reverse string\n";
+        cout << "2. Uppercase to lowercase\n";
+        cout << "3. Exit\n";
+        cout << "Enter choice: ";
+
+        string choice;
+        getline(cin, choice);
+
+        if (choice == "3") {
+            string msg = "exit";
+            sendto(clientSocket, msg.c_str(), msg.size(), 0,
+                   (sockaddr*)&serverAddr, sizeof(serverAddr));
+            break;
+        }
+
+        if (choice != "1" && choice != "2") {
+            cout << "Invalid choice\n";
+            continue;
+        }
+
+        cout << "Enter string: ";
+        string text;
+        getline(cin, text);
+
+        string message = choice + "|" + text;
+
+        sendto(clientSocket, message.c_str(), message.size(), 0,
+               (sockaddr*)&serverAddr, sizeof(serverAddr));
+
+        char buffer[1024];
+        sockaddr_in fromAddr{};
+        socklen_t len = sizeof(fromAddr);
+
+        int bytes = recvfrom(clientSocket, buffer, sizeof(buffer) - 1, 0,
+                             (sockaddr*)&fromAddr, &len);
+
+        if (bytes < 0) {
+            cout << "Failed to receive response\n";
+            continue;
+        }
+
+        buffer[bytes] = '\0';
+        cout << "Result: " << buffer << endl;
+    }
+
+    close(clientSocket);
+    return 0;
+}
